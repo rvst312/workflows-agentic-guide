@@ -1,4 +1,4 @@
-# 🤖 Agentic Dev Team
+# 🤖 Agentic Dev Team — CrewAI
 
 Sistema multi-agente para equipos de desarrollo de software, construido con Python, LangChain y LangGraph.
 
@@ -132,4 +132,4 @@ Consulta la **[Guía de Implementación completa](guia-arquitectura-agentica-pyt
 
 ## Licencia
 
-MIT# workflows-agentic-guide
+MIT

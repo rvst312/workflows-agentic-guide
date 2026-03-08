@@ -1,50 +1,55 @@
-# Guía de Implementación: Arquitectura de Sistemas Agénticos en Python
+# Guía de Implementación: Arquitectura de Sistemas Agénticos con CrewAI
 
-> **Basada en el marco estratégico de integración de inteligencia autónoma para equipos de desarrollo de software.**
+> Framework líder open-source para orquestar equipos autónomos de agentes de IA — independiente de LangChain, construido desde cero.
 
 ---
 
 ## Tabla de Contenidos
 
-1. [Requisitos y Setup del Entorno](#1-requisitos-y-setup-del-entorno)
-2. [Estructura del Proyecto](#2-estructura-del-proyecto)
-3. [Componentes Fundamentales del Agente](#3-componentes-fundamentales-del-agente)
-4. [Implementación de Agentes Especializados](#4-implementación-de-agentes-especializados)
-5. [Patrones de Orquestación](#5-patrones-de-orquestación)
-6. [Gestión de Memoria y Bases de Datos Vectoriales](#6-gestión-de-memoria-y-bases-de-datos-vectoriales)
-7. [Model Context Protocol (MCP) y Herramientas](#7-model-context-protocol-mcp-y-herramientas)
-8. [Observabilidad y Trazado](#8-observabilidad-y-trazado)
-9. [Ciclo de Vida del Desarrollo Agéntico (ADLC)](#9-ciclo-de-vida-del-desarrollo-agéntico-adlc)
-10. [Estrategias de Manejo de Errores](#10-estrategias-de-manejo-de-errores)
+1. [Instalación y Setup](#1-instalación-y-setup)
+2. [Conceptos clave de CrewAI](#2-conceptos-clave-de-crewai)
+3. [Estructura del Proyecto](#3-estructura-del-proyecto)
+4. [Configuración YAML de Agentes y Tareas](#4-configuración-yaml-de-agentes-y-tareas)
+5. [Implementación de la Crew](#5-implementación-de-la-crew)
+6. [Herramientas Personalizadas](#6-herramientas-personalizadas)
+7. [Orquestación con Flows](#7-orquestación-con-flows)
+8. [Memoria y Conocimiento](#8-memoria-y-conocimiento)
+9. [Manejo de Errores y Guardrails](#9-manejo-de-errores-y-guardrails)
+10. [Observabilidad](#10-observabilidad)
 11. [Testing y Evaluación](#11-testing-y-evaluación)
-12. [KPIs y Medición de ROI](#12-kpis-y-medición-de-roi)
+12. [KPIs y Métricas](#12-kpis-y-métricas)
 
 ---
 
-## 1. Requisitos y Setup del Entorno
+## 1. Instalación y Setup
 
-### Dependencias principales
+### Requisitos
+
+- Python `>3.10` y `<3.13`
+- `uv` (gestor de paquetes recomendado por CrewAI)
 
 ```bash
-# Crear entorno virtual
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# venv\Scripts\activate   # Windows
+# Instalar uv
+pip install uv
 
-# Instalar dependencias
-pip install \
-  langchain==0.2.0 \
-  langchain-openai==0.1.0 \
-  langgraph==0.1.0 \
-  langsmith==0.1.0 \
-  chromadb==0.5.0 \
-  openai==1.30.0 \
-  anthropic==0.28.0 \
-  pydantic==2.7.0 \
-  python-dotenv==1.0.0 \
-  fastapi==0.111.0 \
-  pytest==8.2.0 \
-  pytest-asyncio==0.23.0
+# Instalar CrewAI CLI
+uv tool install crewai
+
+# Verificar instalación
+crewai --version
+```
+
+### Crear proyecto con el CLI
+
+```bash
+# El CLI genera toda la estructura automáticamente
+crewai create crew dev-team
+
+# El asistente te preguntará:
+# → Proveedor LLM: OpenAI / Anthropic / Gemini / Ollama
+# → Modelo: gpt-4o / claude-3-7-sonnet / gemini-2.5-pro
+
+cd dev-team
 ```
 
 ### Variables de entorno
@@ -53,1339 +58,1110 @@ pip install \
 # .env
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
+
+# Opcional: observabilidad con LangSmith
 LANGCHAIN_API_KEY=ls-...
 LANGCHAIN_TRACING_V2=true
-LANGCHAIN_PROJECT=agentic-dev-team
-CHROMA_PERSIST_DIR=./data/chroma
+LANGCHAIN_PROJECT=dev-team-crewai
+```
+
+### Instalar dependencias
+
+```bash
+uv sync
+# o con pip:
+pip install crewai crewai-tools python-dotenv pytest
 ```
 
 ---
 
-## 2. Estructura del Proyecto
+## 2. Conceptos Clave de CrewAI
+
+| Concepto | Descripción |
+|---|---|
+| **Agent** | Unidad autónoma con `role`, `goal` y `backstory` |
+| **Task** | Tarea asignada a un agente con `description` y `expected_output` |
+| **Crew** | Equipo de agentes que colaboran para completar tareas |
+| **Flow** | Orquestador event-driven que controla el estado y la ejecución |
+| **Tool** | Función que el agente puede invocar para actuar sobre el mundo |
+| **Process** | Modo de ejecución: `sequential` (default) o `hierarchical` |
+
+### Flujo de ejecución
 
 ```
-agentic_team/
-├── agents/
-│   ├── __init__.py
-│   ├── base_agent.py          # Clase base con componentes comunes
-│   ├── architect_agent.py     # Agente Arquitecto
-│   ├── developer_agent.py     # Agente Desarrollador
-│   ├── reviewer_agent.py      # Agente Revisor
-│   └── pm_agent.py            # Agente Product Manager
-├── orchestration/
-│   ├── __init__.py
-│   ├── sequential.py          # Orquestación secuencial
-│   ├── concurrent.py          # Orquestación concurrente
-│   └── group_chat.py          # Orquestación de chat grupal
-├── memory/
-│   ├── __init__.py
-│   ├── short_term.py          # Memoria a corto plazo
-│   └── long_term.py           # Memoria a largo plazo (vectorial)
-├── tools/
-│   ├── __init__.py
-│   ├── git_tools.py           # Herramientas de control de versiones
-│   ├── code_tools.py          # Herramientas de análisis de código
-│   └── api_tools.py           # Herramientas de integración externa
-├── observability/
-│   ├── __init__.py
-│   ├── tracer.py              # Trazado distribuido
-│   └── metrics.py             # Métricas y KPIs
-├── governance/
-│   ├── __init__.py
-│   ├── prompt_registry.py     # Registro centralizado de prompts
-│   └── version_control.py     # Control de versiones de agentes
-├── evaluation/
-│   ├── __init__.py
-│   ├── golden_dataset.py      # Conjuntos dorados de prueba
-│   └── llm_judge.py           # Evaluador LLM-as-a-judge
-├── tests/
-│   ├── unit/
-│   ├── integration/
-│   └── evaluation/
-├── config.py
-└── main.py
+Flow (estado global)
+  │
+  └──▶ Crew (equipo autónomo)
+          │
+          ├── Agent: Arquitecto ──▶ Task: Diseño técnico
+          ├── Agent: Desarrollador ──▶ Task: Implementar código
+          └── Agent: Revisor ──▶ Task: Revisar y validar
 ```
 
 ---
 
-## 3. Componentes Fundamentales del Agente
+## 3. Estructura del Proyecto
 
-### Clase base del agente
+El CLI genera esta estructura lista para producción:
 
-```python
-# agents/base_agent.py
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from langchain_openai import ChatOpenAI
-import uuid
-import logging
-
-logger = logging.getLogger(__name__)
-
-
-class AgentState(BaseModel):
-    """Estado interno del agente."""
-    agent_id: str
-    task: str
-    context: Dict[str, Any] = {}
-    messages: List[Dict] = []
-    tool_calls: List[Dict] = []
-    feedback_loop: List[Dict] = []
-    status: str = "idle"  # idle, running, completed, failed
-
-
-class BaseAgent(ABC):
-    """
-    Clase base para todos los agentes del equipo.
-    Implementa los 4 componentes: percepción, razonamiento, acción y feedback.
-    """
-
-    def __init__(
-        self,
-        name: str,
-        role: str,
-        model: str = "gpt-4o",
-        temperature: float = 0.1,
-        memory=None,
-        tools: Optional[List] = None,
-    ):
-        self.name = name
-        self.role = role
-        self.agent_id = str(uuid.uuid4())
-        self.llm = ChatOpenAI(model=model, temperature=temperature)
-        self.memory = memory
-        self.tools = tools or []
-        self.state = AgentState(agent_id=self.agent_id, task="")
-
-        # Vincular herramientas al LLM si existen
-        if self.tools:
-            self.llm_with_tools = self.llm.bind_tools(self.tools)
-        else:
-            self.llm_with_tools = self.llm
-
-    # ─── Percepción ─────────────────────────────────────────────────────────────
-    def perceive(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Procesa y estructura la información de entrada."""
-        self.state.context.update(input_data)
-        logger.info(f"[{self.name}] Percibiendo entrada: {list(input_data.keys())}")
-        return self.state.context
-
-    # ─── Razonamiento ────────────────────────────────────────────────────────────
-    @abstractmethod
-    def reason(self, task: str, context: Dict[str, Any]) -> str:
-        """Define el razonamiento específico de cada agente."""
-        pass
-
-    # ─── Acción ─────────────────────────────────────────────────────────────────
-    def act(self, reasoning_output: str) -> Dict[str, Any]:
-        """Ejecuta acciones basadas en el razonamiento."""
-        result = {"output": reasoning_output, "agent": self.name, "status": "completed"}
-        self.state.tool_calls.append(result)
-        return result
-
-    # ─── Bucle de Retroalimentación ──────────────────────────────────────────────
-    def feedback(self, action_result: Dict[str, Any]) -> None:
-        """Actualiza el estado interno basándose en el resultado de la acción."""
-        self.state.feedback_loop.append(action_result)
-        self.state.status = action_result.get("status", "completed")
-        logger.info(f"[{self.name}] Feedback recibido: {action_result['status']}")
-
-    # ─── Ciclo completo ──────────────────────────────────────────────────────────
-    def run(self, task: str, context: Dict[str, Any] = {}) -> Dict[str, Any]:
-        """Ejecuta el ciclo completo: percepción → razonamiento → acción → feedback."""
-        self.state.task = task
-        self.state.status = "running"
-
-        enriched_context = self.perceive(context)
-        reasoning = self.reason(task, enriched_context)
-        result = self.act(reasoning)
-        self.feedback(result)
-
-        return result
+```
+dev-team/
+├── .env                          # API keys (no commitear)
+├── .gitignore
+├── pyproject.toml                # Dependencias del proyecto
+├── README.md
+├── knowledge/                    # Archivos de conocimiento (PDFs, docs)
+└── src/
+    └── dev_team/
+        ├── __init__.py
+        ├── main.py               # Punto de entrada
+        ├── crew.py               # Definición del equipo
+        ├── config/
+        │   ├── agents.yaml       # Configuración de agentes
+        │   └── tasks.yaml        # Configuración de tareas
+        └── tools/
+            ├── __init__.py
+            └── custom_tools.py   # Herramientas propias
 ```
 
 ---
 
-## 4. Implementación de Agentes Especializados
+## 4. Configuración YAML de Agentes y Tareas
 
-### Agente Arquitecto
+### `config/agents.yaml`
 
-```python
-# agents/architect_agent.py
-from agents.base_agent import BaseAgent
-from typing import Dict, Any
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+```yaml
+# Agente Arquitecto: planifica, no escribe código directamente
+architect:
+  role: >
+    Arquitecto de Software Senior para {project_name}
+  goal: >
+    Analizar los requisitos de {project_name}, diseñar la solución técnica
+    y generar un plan detallado de implementación con tareas asignables.
+    Nunca escribes código directamente; tu output es siempre un plan.
+  backstory: >
+    Eres un arquitecto con 15 años de experiencia diseñando sistemas
+    distribuidos. Tu fortaleza es descomponer problemas complejos en
+    módulos bien definidos con interfaces claras. Anticipas modos de fallo
+    y garantizas escalabilidad desde el diseño.
+  llm: gpt-4o
+  verbose: true
+  allow_delegation: true
 
+# Agente Desarrollador: implementa el plan del arquitecto
+developer:
+  role: >
+    Ingeniero de Software Full-Stack para {project_name}
+  goal: >
+    Implementar el código Python descrito en el plan técnico de {project_name}.
+    Cada función debe incluir type hints, docstrings y manejo de excepciones.
+    Siempre valida que el código ejecute sin errores antes de entregarlo.
+  backstory: >
+    Eres un desarrollador senior especializado en Python y APIs REST.
+    Sigues SOLID, DRY y escribes código que un junior pueda entender.
+    Tu lema: el código no está listo hasta que tiene tests.
+  llm: anthropic/claude-3-7-sonnet-20250219
+  verbose: true
+  allow_delegation: false
 
-ARCHITECT_SYSTEM_PROMPT = """
-Eres el Agente Arquitecto de un equipo de desarrollo de software.
-Tu responsabilidad es:
-- Leer requisitos y planificar el enfoque técnico
-- Asignar tareas a otros agentes especializados
-- NO escribir código directamente
-- Garantizar que el sistema sea fiable y adaptativo a escala
-- Anticipar modos de fallo y brechas de integración
+# Agente Revisor: evalúa calidad y seguridad
+reviewer:
+  role: >
+    Ingeniero de Calidad y Seguridad de Software
+  goal: >
+    Revisar el código generado para {project_name} identificando bugs,
+    vulnerabilidades de seguridad, problemas de rendimiento y deuda técnica.
+    Proporciona un reporte estructurado con puntuación y sugerencias concretas.
+  backstory: >
+    Eres un experto en code review con foco en seguridad (OWASP) y
+    rendimiento. Has prevenido cientos de vulnerabilidades en producción.
+    Eres directo y constructivo: nunca apruebas código con problemas críticos.
+  llm: gpt-4o
+  verbose: true
+  allow_delegation: false
 
-Formato de salida: Siempre estructura tu respuesta como:
-1. ANÁLISIS: Evaluación de los requisitos
-2. PLAN: Lista de tareas ordenadas con responsable (agente)
-3. RESTRICCIONES: Consideraciones de seguridad y rendimiento
-4. CRITERIOS DE ÉXITO: Cómo se validará el resultado
-"""
-
-
-class ArchitectAgent(BaseAgent):
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="Arquitecto",
-            role="Diseña la solución técnica y orquesta al equipo",
-            **kwargs,
-        )
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", ARCHITECT_SYSTEM_PROMPT),
-            ("human", "Tarea: {task}\nContexto: {context}"),
-        ])
-        self.chain = self.prompt | self.llm | StrOutputParser()
-
-    def reason(self, task: str, context: Dict[str, Any]) -> str:
-        response = self.chain.invoke({"task": task, "context": str(context)})
-        self.state.messages.append({"role": "architect", "content": response})
-        return response
+# Agente Product Manager
+pm:
+  role: >
+    Product Manager de IA para {project_name}
+  goal: >
+    Traducir los objetivos de negocio de {project_name} en requisitos técnicos
+    claros. Priorizas el backlog según impacto y esfuerzo, y defines criterios
+    de aceptación medibles para cada funcionalidad.
+  backstory: >
+    Eres un PM con experiencia en productos de IA. Entiendes tanto el negocio
+    como la viabilidad técnica. Redactas historias de usuario en formato
+    "Como [rol], quiero [acción] para [beneficio]" y defines métricas de éxito.
+  llm: gpt-4o-mini
+  verbose: true
+  allow_delegation: true
 ```
 
-### Agente Desarrollador
+### `config/tasks.yaml`
 
-```python
-# agents/developer_agent.py
-from agents.base_agent import BaseAgent
-from tools.code_tools import run_code, lint_code, format_code
-from typing import Dict, Any
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+```yaml
+# Tarea 1: El PM define los requisitos
+define_requirements_task:
+  description: >
+    Analiza el siguiente objetivo de negocio para {project_name}:
+    "{business_goal}"
 
+    Genera:
+    1. Lista de funcionalidades priorizadas (MoSCoW)
+    2. Historias de usuario para las funcionalidades "Must Have"
+    3. Criterios de aceptación medibles para cada historia
+    4. Estimación de complejidad (S/M/L/XL)
+  expected_output: >
+    Un documento de requisitos estructurado en Markdown con:
+    - Tabla de priorización MoSCoW
+    - Mínimo 3 historias de usuario con criterios de aceptación
+    - Estimación de esfuerzo total
+  agent: pm
+  output_file: outputs/requirements.md
 
-DEVELOPER_SYSTEM_PROMPT = """
-Eres el Agente Desarrollador de un equipo de software.
-Tu responsabilidad es:
-- Implementar código limpio basado en el plan del Arquitecto
-- Ejecutar y validar que el código funciona antes de entregarlo
-- Aplicar mejores prácticas: SOLID, DRY, KISS
-- Documentar cada función con docstrings
+# Tarea 2: El Arquitecto diseña la solución
+design_architecture_task:
+  description: >
+    Basándote en los requisitos generados, diseña la arquitectura técnica
+    para {project_name}. Define:
+    1. Componentes del sistema y sus responsabilidades
+    2. Interfaces y contratos entre módulos
+    3. Estructura de carpetas y archivos
+    4. Dependencias externas necesarias
+    5. Plan de implementación ordenado con estimaciones
+  expected_output: >
+    Un documento de diseño técnico en Markdown con:
+    - Diagrama de arquitectura (en texto/ASCII)
+    - Especificación de cada módulo
+    - Plan de implementación paso a paso
+    - Lista de dependencias pip
+  agent: architect
+  context:
+    - define_requirements_task
+  output_file: outputs/architecture.md
 
-Cuando generes código:
-- Incluye siempre tests unitarios
-- Maneja excepciones explícitamente
-- Usa type hints en Python
-"""
+# Tarea 3: El Desarrollador implementa
+implement_code_task:
+  description: >
+    Implementa el código Python para {project_name} siguiendo el plan de
+    arquitectura. Requisitos obligatorios:
+    - Type hints en todas las funciones
+    - Docstrings con descripción, Args y Returns
+    - Manejo explícito de excepciones
+    - Tests unitarios con pytest para cada módulo
+    - Código ejecutable sin errores
 
+    Entrega cada archivo completo, no fragmentos parciales.
+  expected_output: >
+    Código Python completo y funcional que incluya:
+    - Todos los módulos descritos en la arquitectura
+    - Suite de tests con pytest
+    - requirements.txt actualizado
+    - Instrucciones de ejecución
+  agent: developer
+  context:
+    - design_architecture_task
+  output_file: outputs/implementation.py
 
-class DeveloperAgent(BaseAgent):
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="Desarrollador",
-            role="Implementa el código según el diseño arquitectónico",
-            tools=[run_code, lint_code, format_code],
-            **kwargs,
-        )
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", DEVELOPER_SYSTEM_PROMPT),
-            ("human", "Plan técnico: {task}\nContexto: {context}"),
-        ])
-        self.chain = self.prompt | self.llm_with_tools | StrOutputParser()
+# Tarea 4: El Revisor valida
+review_code_task:
+  description: >
+    Realiza una revisión exhaustiva del código implementado para {project_name}.
+    Evalúa:
+    1. Correctitud funcional (¿cumple los requisitos?)
+    2. Calidad del código (SOLID, DRY, legibilidad)
+    3. Seguridad (OWASP Top 10, inyección, exposición de datos)
+    4. Rendimiento y escalabilidad
+    5. Cobertura y calidad de tests
+    6. Documentación
 
-    def reason(self, task: str, context: Dict[str, Any]) -> str:
-        response = self.chain.invoke({"task": task, "context": str(context)})
-        return response
-```
-
-### Agente Revisor (patrón Evaluador-Optimizador)
-
-```python
-# agents/reviewer_agent.py
-from agents.base_agent import BaseAgent
-from typing import Dict, Any
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
-import json
-
-
-REVIEWER_SYSTEM_PROMPT = """
-Eres el Agente Revisor de código. Tu trabajo es evaluar el código generado.
-Devuelve SIEMPRE un JSON con esta estructura exacta:
-{
-  "approved": true/false,
-  "score": 0-100,
-  "issues": ["issue1", "issue2"],
-  "suggestions": ["sugerencia1", "sugerencia2"],
-  "security_concerns": ["concern1"],
-  "requires_retry": true/false
-}
-"""
-
-
-class ReviewerAgent(BaseAgent):
-    def __init__(self, **kwargs):
-        super().__init__(
-            name="Revisor",
-            role="Evalúa y valida el código generado por el Desarrollador",
-            **kwargs,
-        )
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", REVIEWER_SYSTEM_PROMPT),
-            ("human", "Código a revisar:\n{task}\n\nCriterios de evaluación: {context}"),
-        ])
-        self.chain = self.prompt | self.llm | StrOutputParser()
-
-    def reason(self, task: str, context: Dict[str, Any]) -> str:
-        response = self.chain.invoke({"task": task, "context": str(context)})
-        return response
-
-    def evaluate(self, code: str, criteria: Dict) -> Dict[str, Any]:
-        """Evalúa código y retorna un reporte estructurado."""
-        raw = self.reason(code, criteria)
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            return {"approved": False, "score": 0, "issues": ["Parse error"], "requires_retry": True}
-```
-
----
-
-## 5. Patrones de Orquestación
-
-### Orquestación Secuencial
-
-```python
-# orchestration/sequential.py
-from typing import Dict, Any, List
-from agents.base_agent import BaseAgent
-import logging
-
-logger = logging.getLogger(__name__)
-
-
-class SequentialOrchestrator:
-    """
-    Encadena agentes en orden lineal.
-    La salida de cada agente es la entrada del siguiente.
-    """
-
-    def __init__(self, agents: List[BaseAgent]):
-        self.agents = agents
-
-    def run(self, initial_task: str, initial_context: Dict[str, Any] = {}) -> Dict[str, Any]:
-        context = initial_context.copy()
-        current_task = initial_task
-        results = []
-
-        for agent in self.agents:
-            logger.info(f"Ejecutando agente: {agent.name}")
-            result = agent.run(current_task, context)
-
-            # La salida del agente enriquece el contexto para el siguiente
-            context[f"{agent.name}_output"] = result["output"]
-            current_task = result["output"]  # El output se convierte en la nueva tarea
-            results.append(result)
-
-        return {"results": results, "final_output": results[-1]["output"], "context": context}
-```
-
-### Orquestación Concurrente
-
-```python
-# orchestration/concurrent.py
-import asyncio
-from typing import Dict, Any, List
-from agents.base_agent import BaseAgent
-import logging
-
-logger = logging.getLogger(__name__)
-
-
-class ConcurrentOrchestrator:
-    """
-    Ejecuta múltiples agentes en paralelo y agrega sus resultados.
-    Ideal para lluvia de ideas y razonamiento de conjunto.
-    """
-
-    def __init__(self, agents: List[BaseAgent], aggregation: str = "vote"):
-        self.agents = agents
-        self.aggregation = aggregation  # "vote", "weighted", "llm_synthesis"
-
-    async def _run_agent_async(self, agent: BaseAgent, task: str, context: Dict) -> Dict:
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, agent.run, task, context)
-
-    async def run_async(self, task: str, context: Dict[str, Any] = {}) -> Dict[str, Any]:
-        tasks = [self._run_agent_async(agent, task, context) for agent in self.agents]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        valid_results = [r for r in results if not isinstance(r, Exception)]
-        aggregated = self._aggregate(valid_results)
-
-        return {"individual_results": valid_results, "aggregated": aggregated}
-
-    def run(self, task: str, context: Dict[str, Any] = {}) -> Dict[str, Any]:
-        return asyncio.run(self.run_async(task, context))
-
-    def _aggregate(self, results: List[Dict]) -> str:
-        if self.aggregation == "vote":
-            # Retorna el output más frecuente (simplificado)
-            outputs = [r.get("output", "") for r in results]
-            return max(set(outputs), key=outputs.count)
-        return "\n---\n".join([r.get("output", "") for r in results])
-```
-
-### Orquestación con LangGraph (Grafo de Estado)
-
-```python
-# orchestration/graph_orchestrator.py
-from langgraph.graph import StateGraph, END
-from typing import TypedDict, List, Annotated
-import operator
-
-
-class TeamState(TypedDict):
-    task: str
-    architect_plan: str
-    code: str
-    review: dict
-    iterations: int
-    final_output: str
-
-
-def create_dev_team_graph(architect, developer, reviewer, max_iterations: int = 3):
-    """
-    Crea un grafo de estado para el equipo de desarrollo.
-    Implementa el patrón Evaluador-Optimizador con reintentos.
-    """
-
-    def architect_node(state: TeamState) -> TeamState:
-        result = architect.run(state["task"])
-        return {**state, "architect_plan": result["output"]}
-
-    def developer_node(state: TeamState) -> TeamState:
-        result = developer.run(state["architect_plan"], {"task": state["task"]})
-        return {**state, "code": result["output"]}
-
-    def reviewer_node(state: TeamState) -> TeamState:
-        review = reviewer.evaluate(state["code"], {"task": state["task"]})
-        return {**state, "review": review, "iterations": state.get("iterations", 0) + 1}
-
-    def should_retry(state: TeamState) -> str:
-        """Decide si reintentar o finalizar."""
-        review = state.get("review", {})
-        iterations = state.get("iterations", 0)
-
-        if review.get("approved") or iterations >= 3:
-            return "end"
-        return "developer"  # Reintenta con el desarrollador
-
-    # Construir el grafo
-    workflow = StateGraph(TeamState)
-    workflow.add_node("architect", architect_node)
-    workflow.add_node("developer", developer_node)
-    workflow.add_node("reviewer", reviewer_node)
-
-    workflow.set_entry_point("architect")
-    workflow.add_edge("architect", "developer")
-    workflow.add_edge("developer", "reviewer")
-    workflow.add_conditional_edges("reviewer", should_retry, {"end": END, "developer": "developer"})
-
-    return workflow.compile()
+    Para cada problema encontrado: indica severidad (CRÍTICO/ALTO/MEDIO/BAJO),
+    ubicación y solución propuesta.
+  expected_output: >
+    Reporte de revisión en Markdown con:
+    - Puntuación general (0-100)
+    - Estado: APROBADO / REQUIERE CAMBIOS / RECHAZADO
+    - Lista de issues por severidad
+    - Sugerencias de mejora
+  agent: reviewer
+  context:
+    - implement_code_task
+  output_file: outputs/review.md
 ```
 
 ---
 
-## 6. Gestión de Memoria y Bases de Datos Vectoriales
+## 5. Implementación de la Crew
 
-### Memoria a corto plazo
+### `crew.py`
 
 ```python
-# memory/short_term.py
-from collections import deque
-from typing import List, Dict, Any
+# src/dev_team/crew.py
+from crewai import Agent, Crew, Process, Task
+from crewai.project import CrewBase, agent, crew, task
+from crewai_tools import FileReadTool, CodeInterpreterTool
+from .tools.custom_tools import LintCodeTool, RunTestsTool
 
 
-class ShortTermMemory:
-    """Buffer de contexto para la tarea actual."""
+@CrewBase
+class DevTeamCrew:
+    """
+    Equipo de desarrollo agéntico: PM → Arquitecto → Desarrollador → Revisor.
+    Implementa el patrón Evaluador-Optimizador con proceso secuencial.
+    """
 
-    def __init__(self, max_turns: int = 20):
-        self.buffer = deque(maxlen=max_turns)
+    agents_config = "config/agents.yaml"
+    tasks_config = "config/tasks.yaml"
 
-    def add(self, role: str, content: str) -> None:
-        self.buffer.append({"role": role, "content": content})
+    # ─── Definición de Agentes ───────────────────────────────────────────────
 
-    def get_messages(self) -> List[Dict]:
-        return list(self.buffer)
+    @agent
+    def pm(self) -> Agent:
+        return Agent(
+            config=self.agents_config["pm"],
+            tools=[FileReadTool()],
+        )
 
-    def clear(self) -> None:
-        self.buffer.clear()
+    @agent
+    def architect(self) -> Agent:
+        return Agent(
+            config=self.agents_config["architect"],
+            tools=[FileReadTool()],
+        )
 
-    def to_langchain_messages(self):
-        from langchain_core.messages import HumanMessage, AIMessage
-        messages = []
-        for msg in self.buffer:
-            if msg["role"] == "user":
-                messages.append(HumanMessage(content=msg["content"]))
-            else:
-                messages.append(AIMessage(content=msg["content"]))
-        return messages
+    @agent
+    def developer(self) -> Agent:
+        return Agent(
+            config=self.agents_config["developer"],
+            tools=[
+                CodeInterpreterTool(),
+                LintCodeTool(),
+                RunTestsTool(),
+            ],
+        )
+
+    @agent
+    def reviewer(self) -> Agent:
+        return Agent(
+            config=self.agents_config["reviewer"],
+            tools=[FileReadTool(), LintCodeTool()],
+        )
+
+    # ─── Definición de Tareas ────────────────────────────────────────────────
+
+    @task
+    def define_requirements_task(self) -> Task:
+        return Task(config=self.tasks_config["define_requirements_task"])
+
+    @task
+    def design_architecture_task(self) -> Task:
+        return Task(config=self.tasks_config["design_architecture_task"])
+
+    @task
+    def implement_code_task(self) -> Task:
+        return Task(config=self.tasks_config["implement_code_task"])
+
+    @task
+    def review_code_task(self) -> Task:
+        return Task(config=self.tasks_config["review_code_task"])
+
+    # ─── Definición de la Crew ───────────────────────────────────────────────
+
+    @crew
+    def crew(self) -> Crew:
+        return Crew(
+            agents=self.agents,    # Inyectados automáticamente por @CrewBase
+            tasks=self.tasks,      # Inyectados automáticamente por @CrewBase
+            process=Process.sequential,
+            verbose=True,
+            # Para proceso jerárquico (un manager LLM asigna tareas):
+            # process=Process.hierarchical,
+            # manager_llm="gpt-4o",
+        )
 ```
 
-### Memoria a largo plazo con ChromaDB
+### `main.py`
 
 ```python
-# memory/long_term.py
-import chromadb
-from langchain_openai import OpenAIEmbeddings
-from langchain_chroma import Chroma
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from typing import List, Dict, Any
-import os
+# src/dev_team/main.py
+from dotenv import load_dotenv
+from .crew import DevTeamCrew
+
+load_dotenv()
 
 
-class LongTermMemory:
-    """
-    Memoria persistente basada en ChromaDB.
-    Implementa búsqueda híbrida (vectorial + léxica).
-    """
+def run():
+    """Punto de entrada principal del equipo agéntico."""
+    inputs = {
+        "project_name": "API de Autenticación JWT",
+        "business_goal": (
+            "Desarrollar una API REST en FastAPI que permita registro, "
+            "login y renovación de tokens JWT. Debe soportar 1000 req/seg "
+            "y cumplir con OWASP Top 10."
+        ),
+    }
 
-    def __init__(
-        self,
-        collection_name: str = "agent_memory",
-        persist_dir: str = "./data/chroma",
-        chunk_size: int = 512,
-        chunk_overlap: int = 64,
-    ):
-        self.embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-        )
-        self.vectorstore = Chroma(
-            collection_name=collection_name,
-            embedding_function=self.embeddings,
-            persist_directory=persist_dir,
-        )
+    print("🚀 Iniciando equipo de desarrollo agéntico...")
+    result = DevTeamCrew().crew().kickoff(inputs=inputs)
+    print("\n✅ Proceso completado.")
+    print(result)
 
-    def store(self, content: str, metadata: Dict[str, Any] = {}) -> None:
-        """Almacena texto fragmentado con sus embeddings."""
-        chunks = self.text_splitter.split_text(content)
-        self.vectorstore.add_texts(texts=chunks, metadatas=[metadata] * len(chunks))
 
-    def retrieve(self, query: str, k: int = 5) -> List[str]:
-        """Recupera los k fragmentos más relevantes semánticamente."""
-        docs = self.vectorstore.similarity_search(query, k=k)
-        return [doc.page_content for doc in docs]
+def run_async():
+    """Ejecución asíncrona para múltiples proyectos en paralelo."""
+    import asyncio
+    from .crew import DevTeamCrew
 
-    def retrieve_with_score(self, query: str, k: int = 5) -> List[Dict]:
-        """Recupera fragmentos con puntuación de similitud."""
-        results = self.vectorstore.similarity_search_with_score(query, k=k)
-        return [{"content": doc.page_content, "score": score, "metadata": doc.metadata}
-                for doc, score in results]
+    projects = [
+        {"project_name": "Auth API", "business_goal": "Sistema de login JWT"},
+        {"project_name": "Payment Service", "business_goal": "Procesamiento de pagos"},
+    ]
+
+    async def kickoff_all():
+        crew = DevTeamCrew().crew()
+        results = await crew.kickoff_for_each_async(inputs=projects)
+        return results
+
+    return asyncio.run(kickoff_all())
+
+
+if __name__ == "__main__":
+    run()
+```
+
+### Ejecutar el equipo
+
+```bash
+# Con el CLI de CrewAI
+crewai run
+
+# O directamente con Python
+cd src && python -m dev_team.main
 ```
 
 ---
 
-## 7. Model Context Protocol (MCP) y Herramientas
+## 6. Herramientas Personalizadas
 
-### Herramientas de Git
-
-```python
-# tools/git_tools.py
-from langchain_core.tools import tool
-import subprocess
-import os
-
-
-@tool
-def create_branch(branch_name: str, base_branch: str = "main") -> str:
-    """
-    Crea una nueva rama en el repositorio Git.
-
-    Args:
-        branch_name: Nombre de la nueva rama (ej: feature/login)
-        base_branch: Rama base desde la que crear (default: main)
-    Returns:
-        Mensaje de éxito o error
-    """
-    try:
-        subprocess.run(["git", "checkout", base_branch], check=True, capture_output=True)
-        subprocess.run(["git", "checkout", "-b", branch_name], check=True, capture_output=True)
-        return f"✅ Rama '{branch_name}' creada desde '{base_branch}'"
-    except subprocess.CalledProcessError as e:
-        return f"❌ Error al crear rama: {e.stderr.decode()}"
-
-
-@tool
-def commit_changes(message: str, files: list = None) -> str:
-    """
-    Realiza un commit con los cambios actuales.
-
-    Args:
-        message: Mensaje del commit (convencional: feat/fix/docs/...)
-        files: Lista de archivos a incluir (None = todos)
-    Returns:
-        Hash del commit o mensaje de error
-    """
-    try:
-        if files:
-            for f in files:
-                subprocess.run(["git", "add", f], check=True, capture_output=True)
-        else:
-            subprocess.run(["git", "add", "."], check=True, capture_output=True)
-
-        result = subprocess.run(
-            ["git", "commit", "-m", message],
-            check=True, capture_output=True, text=True
-        )
-        return f"✅ Commit realizado: {result.stdout.strip()}"
-    except subprocess.CalledProcessError as e:
-        return f"❌ Error en commit: {e.stderr}"
-```
-
-### Herramientas de código
+### `tools/custom_tools.py`
 
 ```python
-# tools/code_tools.py
-from langchain_core.tools import tool
+# src/dev_team/tools/custom_tools.py
+from crewai.tools import BaseTool
+from pydantic import BaseModel, Field
 import subprocess
 import tempfile
 import os
 
 
-@tool
-def run_code(code: str, language: str = "python") -> str:
-    """
-    Ejecuta un fragmento de código en un entorno aislado.
+# ─── Schema de entrada para las herramientas ─────────────────────────────────
 
-    Args:
-        code: El código a ejecutar
-        language: Lenguaje de programación (default: python)
-    Returns:
-        stdout + stderr de la ejecución
-    """
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(code)
-        tmp_path = f.name
+class CodeInput(BaseModel):
+    code: str = Field(description="Código Python a procesar")
 
-    try:
+
+class TestInput(BaseModel):
+    test_file: str = Field(description="Ruta al archivo de tests pytest")
+
+
+# ─── Herramienta: Linting de código ──────────────────────────────────────────
+
+class LintCodeTool(BaseTool):
+    name: str = "lint_code"
+    description: str = (
+        "Analiza código Python con flake8 y detecta errores de estilo, "
+        "imports no usados y problemas de complejidad ciclomática. "
+        "Úsala antes de entregar cualquier implementación."
+    )
+    args_schema: type[BaseModel] = CodeInput
+
+    def _run(self, code: str) -> str:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(code)
+            path = f.name
+        try:
+            result = subprocess.run(
+                ["python", "-m", "flake8", "--max-line-length=100",
+                 "--max-complexity=10", path],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                return "✅ Linting pasado sin errores."
+            return f"⚠️ Issues detectados:\n{result.stdout}"
+        except FileNotFoundError:
+            return "❌ flake8 no instalado. Ejecuta: pip install flake8"
+        finally:
+            os.unlink(path)
+
+
+# ─── Herramienta: Ejecutar tests ─────────────────────────────────────────────
+
+class RunTestsTool(BaseTool):
+    name: str = "run_tests"
+    description: str = (
+        "Ejecuta la suite de tests pytest y retorna el resultado. "
+        "Úsala para validar que el código implementado pasa todos los tests."
+    )
+    args_schema: type[BaseModel] = TestInput
+
+    def _run(self, test_file: str) -> str:
+        if not os.path.exists(test_file):
+            return f"❌ Archivo no encontrado: {test_file}"
         result = subprocess.run(
-            ["python", tmp_path],
-            capture_output=True, text=True, timeout=30
+            ["python", "-m", "pytest", test_file, "-v", "--tb=short"],
+            capture_output=True, text=True, timeout=60
         )
-        output = result.stdout or result.stderr
-        return f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-    except subprocess.TimeoutExpired:
-        return "❌ Timeout: La ejecución superó 30 segundos"
-    finally:
-        os.unlink(tmp_path)
+        status = "✅ Tests pasados" if result.returncode == 0 else "❌ Tests fallidos"
+        return f"{status}\n\n{result.stdout}"
 
 
-@tool
-def lint_code(code: str) -> str:
-    """
-    Analiza el código en busca de problemas de estilo y errores.
+# ─── Herramienta: Llamada a API externa ──────────────────────────────────────
 
-    Args:
-        code: Código Python a analizar
-    Returns:
-        Reporte de linting (errores y advertencias)
-    """
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(code)
-        tmp_path = f.name
+class GitCommitTool(BaseTool):
+    name: str = "git_commit"
+    description: str = (
+        "Realiza un commit en el repositorio Git con el mensaje indicado. "
+        "Usa commits convencionales: feat/fix/docs/refactor/test/chore."
+    )
 
-    try:
-        result = subprocess.run(
-            ["python", "-m", "flake8", "--max-line-length=100", tmp_path],
-            capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            return "✅ Sin errores de linting"
-        return f"⚠️ Issues encontrados:\n{result.stdout}"
-    finally:
-        os.unlink(tmp_path)
+    class _Input(BaseModel):
+        message: str = Field(description="Mensaje del commit (conventional commits)")
+        files: list[str] = Field(default=[], description="Archivos a incluir (vacío = todos)")
 
+    args_schema: type[BaseModel] = _Input
 
-@tool
-def format_code(code: str) -> str:
-    """
-    Formatea el código usando Black.
-
-    Args:
-        code: Código Python a formatear
-    Returns:
-        Código formateado
-    """
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(code)
-        tmp_path = f.name
-
-    try:
-        subprocess.run(["python", "-m", "black", tmp_path], check=True, capture_output=True)
-        with open(tmp_path) as f:
-            return f.read()
-    except Exception as e:
-        return f"❌ Error al formatear: {str(e)}"
-    finally:
-        os.unlink(tmp_path)
+    def _run(self, message: str, files: list[str] = []) -> str:
+        try:
+            targets = files if files else ["."]
+            for f in targets:
+                subprocess.run(["git", "add", f], check=True, capture_output=True)
+            result = subprocess.run(
+                ["git", "commit", "-m", message],
+                capture_output=True, text=True, check=True
+            )
+            return f"✅ Commit realizado:\n{result.stdout.strip()}"
+        except subprocess.CalledProcessError as e:
+            return f"❌ Error: {e.stderr}"
 ```
 
 ---
 
-## 8. Observabilidad y Trazado
+## 7. Orquestación con Flows
 
-### Sistema de trazado asíncrono
+Los Flows permiten control preciso y event-driven sobre múltiples Crews.
 
 ```python
-# observability/tracer.py
-import asyncio
-import time
-import uuid
-import json
-from typing import Dict, Any, Optional, Callable
-from functools import wraps
-from dataclasses import dataclass, field
-from datetime import datetime
-import logging
-
-logger = logging.getLogger(__name__)
+# src/dev_team/flow.py
+from crewai.flow.flow import Flow, listen, start, router
+from pydantic import BaseModel
+from .crew import DevTeamCrew
 
 
-@dataclass
-class Trace:
-    trace_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    agent_name: str = ""
-    task: str = ""
-    start_time: float = field(default_factory=time.time)
-    end_time: Optional[float] = None
-    tool_calls: list = field(default_factory=list)
-    tokens_in: int = 0
-    tokens_out: int = 0
-    status: str = "running"
-    error: Optional[str] = None
+class DevPipelineState(BaseModel):
+    """Estado persistente del pipeline de desarrollo."""
+    project_name: str = ""
+    business_goal: str = ""
+    requirements: str = ""
+    architecture: str = ""
+    code: str = ""
+    review_score: int = 0
+    review_status: str = ""  # APROBADO / REQUIERE_CAMBIOS / RECHAZADO
+    iteration: int = 0
+    max_iterations: int = 3
 
-    @property
-    def latency_ms(self) -> float:
-        if self.end_time:
-            return (self.end_time - self.start_time) * 1000
-        return 0
 
-    def to_dict(self) -> Dict:
+class DevPipelineFlow(Flow[DevPipelineState]):
+    """
+    Pipeline completo de desarrollo con lógica condicional.
+    Si el revisor rechaza, reintenta automáticamente hasta max_iterations.
+    """
+
+    @start()
+    def initialize(self):
+        print(f"🚀 Iniciando pipeline para: {self.state.project_name}")
+        return "start_development"
+
+    @listen("start_development")
+    def run_dev_crew(self):
+        """Ejecuta el equipo completo PM → Arquitecto → Dev → Revisor."""
+        print(f"🔄 Iteración {self.state.iteration + 1}/{self.state.max_iterations}")
+
+        inputs = {
+            "project_name": self.state.project_name,
+            "business_goal": self.state.business_goal,
+        }
+
+        result = DevTeamCrew().crew().kickoff(inputs=inputs)
+        self.state.iteration += 1
+
+        # Parsear resultado del revisor (simplificado)
+        output = str(result)
+        if "APROBADO" in output:
+            self.state.review_status = "APROBADO"
+            self.state.review_score = 85
+        elif "RECHAZADO" in output:
+            self.state.review_status = "RECHAZADO"
+            self.state.review_score = 40
+        else:
+            self.state.review_status = "REQUIERE_CAMBIOS"
+            self.state.review_score = 65
+
+        return self.state.review_status
+
+    @router(run_dev_crew)
+    def evaluate_result(self):
+        """Decide el siguiente paso según el resultado del revisor."""
+        if self.state.review_status == "APROBADO":
+            return "deploy"
+        elif self.state.iteration >= self.state.max_iterations:
+            return "escalate"
+        else:
+            return "retry"
+
+    @listen("deploy")
+    def deploy_to_staging(self):
+        print("✅ Código aprobado. Desplegando a staging...")
+        return {"status": "deployed", "iterations": self.state.iteration}
+
+    @listen("retry")
+    def prepare_retry(self):
+        print(f"🔁 Reintentando... ({self.state.iteration}/{self.state.max_iterations})")
+        return "start_development"
+
+    @listen("escalate")
+    def escalate_to_human(self):
+        print("🚨 Máximo de iteraciones alcanzado. Escalando a revisión humana.")
         return {
-            "trace_id": self.trace_id,
-            "agent": self.agent_name,
-            "task": self.task[:100],
-            "latency_ms": round(self.latency_ms, 2),
-            "tokens_in": self.tokens_in,
-            "tokens_out": self.tokens_out,
-            "tool_calls": len(self.tool_calls),
-            "status": self.status,
-            "timestamp": datetime.fromtimestamp(self.start_time).isoformat(),
+            "status": "escalated",
+            "iterations": self.state.iteration,
+            "last_score": self.state.review_score,
         }
 
 
-class AgentTracer:
-    """Trazado distribuido asíncrono para agentes."""
-
-    _traces: list = []
-    _send_queue: asyncio.Queue = None
-
-    @classmethod
-    def trace(cls, agent_name: str):
-        """Decorador para trazar la ejecución de un agente."""
-        def decorator(func: Callable):
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                trace = Trace(agent_name=agent_name)
-                try:
-                    result = func(*args, **kwargs)
-                    trace.status = "completed"
-                    return result
-                except Exception as e:
-                    trace.status = "failed"
-                    trace.error = str(e)
-                    raise
-                finally:
-                    trace.end_time = time.time()
-                    cls._traces.append(trace)
-                    logger.info(f"TRACE: {json.dumps(trace.to_dict())}")
-            return wrapper
-        return decorator
-
-    @classmethod
-    def get_summary(cls) -> Dict:
-        """Retorna un resumen de todas las trazas registradas."""
-        if not cls._traces:
-            return {}
-        latencies = [t.latency_ms for t in cls._traces if t.end_time]
-        return {
-            "total_traces": len(cls._traces),
-            "completed": sum(1 for t in cls._traces if t.status == "completed"),
-            "failed": sum(1 for t in cls._traces if t.status == "failed"),
-            "avg_latency_ms": round(sum(latencies) / len(latencies), 2) if latencies else 0,
-            "p99_latency_ms": round(sorted(latencies)[int(len(latencies) * 0.99)] if latencies else 0, 2),
-            "total_tokens": sum(t.tokens_in + t.tokens_out for t in cls._traces),
-        }
+# Punto de entrada del Flow
+def run_flow():
+    flow = DevPipelineFlow()
+    flow.state.project_name = "API de Autenticación JWT"
+    flow.state.business_goal = "Sistema de login con tokens JWT y refresh tokens"
+    result = flow.kickoff()
+    return result
 ```
 
-### Métricas de KPIs
+---
+
+## 8. Memoria y Conocimiento
+
+### Configurar memoria en la Crew
 
 ```python
-# observability/metrics.py
+# crew.py — Crew con memoria activada
+from crewai import Crew, Process
+from crewai.memory import LongTermMemory, ShortTermMemory, EntityMemory
+from crewai.memory.storage.rag_storage import RAGStorage
+
+@crew
+def crew(self) -> Crew:
+    return Crew(
+        agents=self.agents,
+        tasks=self.tasks,
+        process=Process.sequential,
+        # Activa los 3 tipos de memoria
+        memory=True,
+        # Memoria a largo plazo: persiste entre ejecuciones
+        long_term_memory=LongTermMemory(
+            storage=RAGStorage(
+                embedder_config={
+                    "provider": "openai",
+                    "config": {"model": "text-embedding-3-small"},
+                },
+                storage_path="./data/long_term_memory",
+            )
+        ),
+        verbose=True,
+    )
+```
+
+### Base de conocimiento estático
+
+```python
+# Añadir documentos de referencia a los agentes
+from crewai.knowledge.source.pdf_knowledge_source import PDFKnowledgeSource
+from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
+
+# Fuentes de conocimiento
+coding_standards = TextFileKnowledgeSource(
+    file_paths=["knowledge/coding_standards.md"]
+)
+api_docs = PDFKnowledgeSource(
+    file_paths=["knowledge/fastapi_reference.pdf"]
+)
+
+@crew
+def crew(self) -> Crew:
+    return Crew(
+        agents=self.agents,
+        tasks=self.tasks,
+        knowledge_sources=[coding_standards, api_docs],
+        process=Process.sequential,
+        verbose=True,
+    )
+```
+
+---
+
+## 9. Manejo de Errores y Guardrails
+
+### Guardrail en tarea (validación antes de continuar)
+
+```python
+# src/dev_team/guardrails.py
+from typing import Tuple
+
+
+def validate_code_output(output) -> Tuple[bool, str]:
+    """
+    Guardrail funcional: valida que el output del desarrollador
+    contiene código Python real antes de pasarlo al revisor.
+    """
+    content = str(output)
+
+    if len(content) < 100:
+        return False, "El código es demasiado corto. Debe ser una implementación completa."
+
+    if "def " not in content and "class " not in content:
+        return False, "No se detectaron funciones ni clases Python. Implementa el código completo."
+
+    if "import" not in content:
+        return False, "No hay imports. El código debe incluir las dependencias necesarias."
+
+    return True, ""
+
+
+def validate_review_output(output) -> Tuple[bool, str]:
+    """
+    Guardrail: el revisor debe siempre incluir una puntuación numérica.
+    """
+    content = str(output)
+    keywords = ["APROBADO", "REQUIERE CAMBIOS", "RECHAZADO"]
+
+    if not any(kw in content.upper() for kw in keywords):
+        return False, "El reporte debe contener uno de: APROBADO, REQUIERE CAMBIOS, RECHAZADO"
+
+    return True, ""
+```
+
+### Aplicar guardrails a las tareas
+
+```python
+# En tasks.yaml o en crew.py al crear el Task
+@task
+def implement_code_task(self) -> Task:
+    from .guardrails import validate_code_output
+    return Task(
+        config=self.tasks_config["implement_code_task"],
+        guardrail=validate_code_output,  # Se ejecuta antes de pasar al siguiente agente
+    )
+
+@task
+def review_code_task(self) -> Task:
+    from .guardrails import validate_review_output
+    return Task(
+        config=self.tasks_config["review_code_task"],
+        guardrail=validate_review_output,
+    )
+```
+
+### Callback para manejo de eventos
+
+```python
+# src/dev_team/callbacks.py
+from crewai.utilities.events import (
+    CrewKickoffStartedEvent,
+    TaskCompletedEvent,
+    AgentActionTakenEvent,
+)
+from crewai.utilities.events.crewai_event_bus import crewai_event_bus
+import logging
+import time
+
+logger = logging.getLogger(__name__)
+_task_start_times = {}
+
+
+@crewai_event_bus.on(CrewKickoffStartedEvent)
+def on_crew_start(source, event):
+    logger.info(f"🚀 Crew iniciada: {event.crew_name}")
+
+
+@crewai_event_bus.on(TaskCompletedEvent)
+def on_task_completed(source, event):
+    task_id = event.task_id
+    duration = time.time() - _task_start_times.pop(task_id, time.time())
+    logger.info(f"✅ Tarea completada en {duration:.1f}s | Agente: {event.agent_role}")
+
+
+@crewai_event_bus.on(AgentActionTakenEvent)
+def on_agent_action(source, event):
+    logger.info(f"🔧 [{event.agent_role}] Acción: {event.tool_name}")
+```
+
+---
+
+## 10. Observabilidad
+
+### Activar trazado nativo de CrewAI
+
+```python
+# crew.py — habilitar trazado
+import os
+os.environ["CREWAI_TELEMETRY"] = "true"  # Telemetría interna CrewAI
+
+# Para observabilidad externa con Langfuse:
+os.environ["LANGFUSE_SECRET_KEY"] = "sk-lf-..."
+os.environ["LANGFUSE_PUBLIC_KEY"] = "pk-lf-..."
+os.environ["LANGFUSE_HOST"] = "https://cloud.langfuse.com"
+```
+
+### Métricas operativas propias
+
+```python
+# src/dev_team/metrics.py
+import time
 from dataclasses import dataclass, field
 from typing import List
-import time
 
 
 @dataclass
-class AgentMetrics:
-    """Registra KPIs operativos del agente."""
+class PipelineMetrics:
+    """KPIs del pipeline de desarrollo agéntico."""
 
-    total_tasks: int = 0
-    completed_without_human: int = 0
-    escalated_to_human: int = 0
-    resolved_first_attempt: int = 0
-    resolution_times: List[float] = field(default_factory=list)
-    accuracy_scores: List[float] = field(default_factory=list)
+    runs: List[dict] = field(default_factory=list)
+
+    def record(
+        self,
+        project: str,
+        duration_s: float,
+        iterations: int,
+        approved: bool,
+        escalated: bool,
+    ):
+        self.runs.append({
+            "project": project,
+            "duration_s": round(duration_s, 2),
+            "iterations": iterations,
+            "approved": approved,
+            "escalated": escalated,
+        })
 
     @property
     def task_completion_rate(self) -> float:
-        """TCR: % tareas completadas sin intervención humana. Objetivo: >85%"""
-        if self.total_tasks == 0:
+        """Objetivo: > 85%"""
+        if not self.runs:
             return 0.0
-        return round(self.completed_without_human / self.total_tasks * 100, 2)
+        approved = sum(1 for r in self.runs if r["approved"] and not r["escalated"])
+        return round(approved / len(self.runs) * 100, 1)
 
     @property
-    def containment_rate(self) -> float:
-        """% consultas resueltas sin escalamiento."""
-        total = self.completed_without_human + self.escalated_to_human
-        if total == 0:
+    def avg_iterations(self) -> float:
+        if not self.runs:
             return 0.0
-        return round(self.completed_without_human / total * 100, 2)
+        return round(sum(r["iterations"] for r in self.runs) / len(self.runs), 1)
 
     @property
-    def first_contact_resolution(self) -> float:
-        """% problemas resueltos en primer intento. Objetivo: >70%"""
-        if self.total_tasks == 0:
+    def avg_duration_s(self) -> float:
+        if not self.runs:
             return 0.0
-        return round(self.resolved_first_attempt / self.total_tasks * 100, 2)
+        return round(sum(r["duration_s"] for r in self.runs) / len(self.runs), 1)
 
-    @property
-    def avg_resolution_time_s(self) -> float:
-        if not self.resolution_times:
-            return 0.0
-        return round(sum(self.resolution_times) / len(self.resolution_times), 2)
-
-    @property
-    def avg_accuracy(self) -> float:
-        if not self.accuracy_scores:
-            return 0.0
-        return round(sum(self.accuracy_scores) / len(self.accuracy_scores), 2)
-
-    def record_task(
-        self, completed: bool, escalated: bool, first_attempt: bool,
-        duration_s: float, accuracy: float
-    ) -> None:
-        self.total_tasks += 1
-        if completed and not escalated:
-            self.completed_without_human += 1
-        if escalated:
-            self.escalated_to_human += 1
-        if first_attempt:
-            self.resolved_first_attempt += 1
-        self.resolution_times.append(duration_s)
-        self.accuracy_scores.append(accuracy)
-
-    def report(self) -> dict:
-        return {
-            "task_completion_rate_%": self.task_completion_rate,
-            "containment_rate_%": self.containment_rate,
-            "first_contact_resolution_%": self.first_contact_resolution,
-            "avg_resolution_time_s": self.avg_resolution_time_s,
-            "avg_accuracy_%": self.avg_accuracy,
-            "total_tasks": self.total_tasks,
-        }
-```
-
----
-
-## 9. Ciclo de Vida del Desarrollo Agéntico (ADLC)
-
-### Registro centralizado de prompts
-
-```python
-# governance/prompt_registry.py
-import json
-import hashlib
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, Optional
-
-
-class PromptRegistry:
-    """
-    Registro centralizado de prompts con control de versiones.
-    Formato de clave: {feature}-{purpose}-{version}
-    Ejemplo: auth-system-validator-v2
-    """
-
-    def __init__(self, registry_path: str = "./config/prompts.json"):
-        self.registry_path = Path(registry_path)
-        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
-        self._load()
-
-    def _load(self) -> None:
-        if self.registry_path.exists():
-            with open(self.registry_path) as f:
-                self.registry = json.load(f)
-        else:
-            self.registry = {}
-
-    def _save(self) -> None:
-        with open(self.registry_path, "w") as f:
-            json.dump(self.registry, f, indent=2, ensure_ascii=False)
-
-    def register(self, key: str, prompt: str, author: str, description: str = "") -> str:
-        """Registra o actualiza un prompt con versionado automático."""
-        prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:8]
-
-        if key not in self.registry:
-            self.registry[key] = {"versions": [], "current": None}
-
-        version_entry = {
-            "hash": prompt_hash,
-            "prompt": prompt,
-            "author": author,
-            "description": description,
-            "created_at": datetime.now().isoformat(),
-            "version_number": len(self.registry[key]["versions"]) + 1,
-        }
-
-        self.registry[key]["versions"].append(version_entry)
-        self.registry[key]["current"] = prompt_hash
-        self._save()
-        return prompt_hash
-
-    def get(self, key: str, version_hash: Optional[str] = None) -> Optional[str]:
-        """Obtiene un prompt por su clave y versión (default: actual)."""
-        if key not in self.registry:
-            return None
-        target_hash = version_hash or self.registry[key]["current"]
-        for v in self.registry[key]["versions"]:
-            if v["hash"] == target_hash:
-                return v["prompt"]
-        return None
-
-    def list_versions(self, key: str) -> list:
-        """Lista todas las versiones de un prompt."""
-        if key not in self.registry:
-            return []
-        return [
-            {"hash": v["hash"], "version": v["version_number"],
-             "author": v["author"], "created_at": v["created_at"]}
-            for v in self.registry[key]["versions"]
-        ]
-```
-
----
-
-## 10. Estrategias de Manejo de Errores
-
-### Bucle de autocorrección con reflexión
-
-```python
-# agents/self_correcting_agent.py
-from agents.base_agent import BaseAgent
-from typing import Dict, Any, Optional
-import logging
-
-logger = logging.getLogger(__name__)
-
-
-class SelfCorrectingMixin:
-    """
-    Mixin que agrega capacidad de autocorrección a cualquier agente.
-    Implementa el patrón: Reflexión → Planificación → Reintento
-    """
-
-    max_retries: int = 3
-
-    def run_with_correction(
-        self,
-        task: str,
-        context: Dict[str, Any] = {},
-        validator: Optional[callable] = None,
-    ) -> Dict[str, Any]:
-        """
-        Ejecuta la tarea con reintentos automáticos en caso de fallo.
-
-        Args:
-            task: La tarea a ejecutar
-            context: Contexto adicional
-            validator: Función que retorna (bool, str) → (válido, mensaje_error)
-        """
-        errors = []
-        last_result = None
-
-        for attempt in range(1, self.max_retries + 1):
-            logger.info(f"[{self.name}] Intento {attempt}/{self.max_retries}")
-
-            try:
-                result = self.run(task, context)
-                last_result = result
-
-                # Validar resultado si hay validador
-                if validator:
-                    is_valid, error_msg = validator(result["output"])
-                    if not is_valid:
-                        errors.append(f"Intento {attempt}: {error_msg}")
-                        # Reflexión: incluir el error como contexto para el reintento
-                        context["previous_errors"] = errors
-                        context["reflection"] = (
-                            f"Tu respuesta anterior falló por: {error_msg}. "
-                            f"Corrige este problema específico."
-                        )
-                        continue
-
-                result["attempts"] = attempt
-                result["errors"] = errors
-                return result
-
-            except Exception as e:
-                error_msg = str(e)
-                errors.append(f"Intento {attempt} - Excepción: {error_msg}")
-                context["previous_errors"] = errors
-                logger.warning(f"[{self.name}] Error en intento {attempt}: {error_msg}")
-
-        # Agotados los reintentos: escalar a humano
-        logger.error(f"[{self.name}] Máximo de reintentos alcanzado. Escalando a humano.")
-        return {
-            "output": last_result.get("output", "") if last_result else "",
-            "status": "escalated",
-            "attempts": self.max_retries,
-            "errors": errors,
-            "requires_human_review": True,
-        }
+    def report(self):
+        print("\n📊 KPIs DEL EQUIPO AGÉNTICO")
+        print("=" * 40)
+        print(f"  Runs totales:          {len(self.runs)}")
+        print(f"  Task Completion Rate:  {self.task_completion_rate}%  (objetivo: >85%)")
+        print(f"  Iteraciones promedio:  {self.avg_iterations}")
+        print(f"  Duración promedio:     {self.avg_duration_s}s")
+        escalated = sum(1 for r in self.runs if r["escalated"])
+        print(f"  Escalados a humano:    {escalated}")
 ```
 
 ---
 
 ## 11. Testing y Evaluación
 
-### Tests unitarios
+### Tests unitarios de agentes
+
+```bash
+# Instalar dependencias de testing
+pip install pytest pytest-asyncio
+```
 
 ```python
 # tests/unit/test_agents.py
 import pytest
 from unittest.mock import MagicMock, patch
-from agents.architect_agent import ArchitectAgent
-from agents.reviewer_agent import ReviewerAgent
+from crewai import Agent, Task, Crew
 
 
-class TestArchitectAgent:
+class TestDevTeamAgents:
 
-    @pytest.fixture
-    def architect(self):
-        with patch("langchain_openai.ChatOpenAI"):
-            agent = ArchitectAgent(model="gpt-4o")
-            agent.chain = MagicMock()
-            return agent
+    def test_architect_agent_has_correct_role(self):
+        """El arquitecto debe tener allow_delegation=True."""
+        with patch("crewai.Agent._setup_agent_executor"):
+            agent = Agent(
+                role="Arquitecto Senior",
+                goal="Diseñar soluciones técnicas",
+                backstory="15 años de experiencia",
+                allow_delegation=True,
+                llm="gpt-4o",
+            )
+        assert agent.allow_delegation is True
+        assert "Arquitecto" in agent.role
 
-    def test_agent_initialization(self, architect):
-        assert architect.name == "Arquitecto"
-        assert architect.role is not None
-        assert architect.agent_id is not None
+    def test_developer_agent_no_delegation(self):
+        """El desarrollador no debe delegar tareas."""
+        with patch("crewai.Agent._setup_agent_executor"):
+            agent = Agent(
+                role="Desarrollador Python",
+                goal="Implementar código",
+                backstory="Senior dev",
+                allow_delegation=False,
+                llm="gpt-4o",
+            )
+        assert agent.allow_delegation is False
 
-    def test_perceive_updates_context(self, architect):
-        input_data = {"requirements": "Build login system", "tech_stack": "FastAPI"}
-        context = architect.perceive(input_data)
-        assert context["requirements"] == "Build login system"
-        assert context["tech_stack"] == "FastAPI"
-
-    def test_reason_calls_chain(self, architect):
-        architect.chain.invoke = MagicMock(return_value="Technical plan here")
-        result = architect.reason("Build auth", {"requirements": "login"})
-        architect.chain.invoke.assert_called_once()
-        assert result == "Technical plan here"
-
-    def test_full_run_cycle(self, architect):
-        architect.chain.invoke = MagicMock(return_value="Plan: 1. Setup, 2. Implement")
-        result = architect.run("Create API", {"stack": "FastAPI"})
-        assert result["status"] == "completed"
-        assert "output" in result
-        assert architect.state.status == "completed"
+    def test_task_has_required_fields(self):
+        """Las tareas deben tener description y expected_output."""
+        with patch("crewai.Agent._setup_agent_executor"):
+            agent = Agent(
+                role="Revisor",
+                goal="Revisar código",
+                backstory="QA expert",
+                llm="gpt-4o",
+            )
+        task = Task(
+            description="Revisar el código del módulo de autenticación",
+            expected_output="Reporte con puntuación y lista de issues",
+            agent=agent,
+        )
+        assert task.description is not None
+        assert task.expected_output is not None
 
 
-class TestReviewerAgent:
+class TestGuardrails:
 
-    @pytest.fixture
-    def reviewer(self):
-        with patch("langchain_openai.ChatOpenAI"):
-            agent = ReviewerAgent(model="gpt-4o")
-            agent.chain = MagicMock()
-            return agent
+    def test_validate_code_output_rejects_empty(self):
+        from src.dev_team.guardrails import validate_code_output
+        valid, msg = validate_code_output("código muy corto")
+        assert valid is False
+        assert len(msg) > 0
 
-    def test_evaluate_returns_structured_output(self, reviewer):
-        mock_response = '{"approved": true, "score": 85, "issues": [], "requires_retry": false}'
-        reviewer.chain.invoke = MagicMock(return_value=mock_response)
+    def test_validate_code_output_accepts_valid_code(self):
+        from src.dev_team.guardrails import validate_code_output
+        code = """
+import fastapi
+from fastapi import FastAPI
 
-        result = reviewer.evaluate("def foo(): pass", {"task": "simple function"})
-        assert isinstance(result, dict)
-        assert "approved" in result
-        assert result["approved"] is True
+app = FastAPI()
 
-    def test_evaluate_handles_invalid_json(self, reviewer):
-        reviewer.chain.invoke = MagicMock(return_value="invalid json response")
-        result = reviewer.evaluate("code", {})
-        assert result["approved"] is False
-        assert result["requires_retry"] is True
+def create_token(user_id: int) -> str:
+    \"\"\"Genera un JWT para el usuario.\"\"\"
+    return f"token_{user_id}"
+        """
+        valid, msg = validate_code_output(code)
+        assert valid is True
+
+    def test_validate_review_output_requires_status(self):
+        from src.dev_team.guardrails import validate_review_output
+        valid, msg = validate_review_output("El código está bien escrito.")
+        assert valid is False
+
+    def test_validate_review_output_accepts_aprobado(self):
+        from src.dev_team.guardrails import validate_review_output
+        valid, _ = validate_review_output("Puntuación: 85/100 — APROBADO")
+        assert valid is True
 ```
 
-### Tests de integración del orquestador
+### Tests de integración
 
 ```python
-# tests/integration/test_orchestration.py
+# tests/integration/test_crew_pipeline.py
 import pytest
-from unittest.mock import MagicMock, patch
-from orchestration.sequential import SequentialOrchestrator
+from unittest.mock import patch, MagicMock
 
 
-class TestSequentialOrchestrator:
-
-    def _make_mock_agent(self, name: str, output: str):
-        agent = MagicMock()
-        agent.name = name
-        agent.run.return_value = {"output": output, "status": "completed"}
-        return agent
-
-    def test_sequential_passes_output_as_next_input(self):
-        agent_a = self._make_mock_agent("Architect", "Plan: build API")
-        agent_b = self._make_mock_agent("Developer", "Code: def api(): ...")
-
-        orchestrator = SequentialOrchestrator(agents=[agent_a, agent_b])
-        result = orchestrator.run("Build a REST API")
-
-        # El segundo agente debe recibir el output del primero como tarea
-        agent_b.run.assert_called_once()
-        call_args = agent_b.run.call_args
-        assert "Plan: build API" in call_args[0][0]
-
-    def test_sequential_returns_final_output(self):
-        agent_a = self._make_mock_agent("A", "step 1")
-        agent_b = self._make_mock_agent("B", "step 2")
-        agent_c = self._make_mock_agent("C", "final result")
-
-        orchestrator = SequentialOrchestrator(agents=[agent_a, agent_b, agent_c])
-        result = orchestrator.run("task")
-
-        assert result["final_output"] == "final result"
-        assert len(result["results"]) == 3
-```
-
-### Evaluador LLM-as-a-Judge
-
-```python
-# evaluation/llm_judge.py
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
-from typing import Dict
-
-
-JUDGE_PROMPT = """
-Eres un evaluador objetivo de sistemas de IA. Evalúa la siguiente respuesta del agente.
-IMPORTANTE: No conoces qué agente generó esta respuesta. Evalúa solo la calidad.
-
-Tarea original: {task}
-Respuesta del agente: {response}
-Criterios de evaluación: {criteria}
-
-Devuelve SOLO un JSON con esta estructura:
-{{
-  "relevance_score": 0-10,
-  "accuracy_score": 0-10,
-  "safety_score": 0-10,
-  "hallucination_detected": true/false,
-  "overall_score": 0-10,
-  "reasoning": "explicación breve"
-}}
-"""
-
-
-class LLMJudge:
-    """Evaluador automático usando un LLM como juez."""
-
-    def __init__(self, judge_model: str = "gpt-4o"):
-        self.llm = ChatOpenAI(model=judge_model, temperature=0)
-        self.prompt = ChatPromptTemplate.from_template(JUDGE_PROMPT)
-        self.chain = self.prompt | self.llm | JsonOutputParser()
-
-    def evaluate(self, task: str, response: str, criteria: str = "accuracy, relevance, safety") -> Dict:
-        try:
-            return self.chain.invoke({
-                "task": task,
-                "response": response,
-                "criteria": criteria,
-            })
-        except Exception as e:
-            return {"overall_score": 0, "reasoning": f"Evaluation failed: {str(e)}"}
-
-
-# tests/evaluation/test_golden_dataset.py
-import pytest
-from evaluation.llm_judge import LLMJudge
-
-
-GOLDEN_DATASET = [
-    {
-        "task": "Create a Python function to calculate fibonacci",
-        "expected_keywords": ["def", "fibonacci", "return"],
-        "min_score": 7,
-    },
-    {
-        "task": "Explain what a REST API is",
-        "expected_keywords": ["HTTP", "endpoint", "request"],
-        "min_score": 7,
-    },
-]
-
-
-class TestGoldenDataset:
+class TestDevTeamCrew:
 
     @pytest.fixture
-    def judge(self):
-        return LLMJudge()
+    def mock_llm_response(self):
+        """Simula respuestas del LLM para tests sin consumir API."""
+        return MagicMock(return_value="Respuesta simulada del agente")
 
-    @pytest.mark.parametrize("example", GOLDEN_DATASET)
-    def test_response_meets_quality_threshold(self, judge, example):
-        """Test de regresión: las respuestas deben superar el umbral mínimo de calidad."""
-        # En tests reales, aquí irían las respuestas del agente en producción
-        mock_response = f"Here is information about: {example['task']}"
-        result = judge.evaluate(example["task"], mock_response)
-        assert isinstance(result.get("overall_score"), (int, float))
+    @patch("crewai.Agent.execute_task")
+    def test_crew_sequential_order(self, mock_execute):
+        """Los agentes deben ejecutarse en orden: PM → Arch → Dev → Reviewer."""
+        execution_order = []
+
+        def track_execution(task, context=None, tools=None):
+            execution_order.append(task.agent.role)
+            return f"Output de {task.agent.role}"
+
+        mock_execute.side_effect = track_execution
+
+        from src.dev_team.crew import DevTeamCrew
+        crew = DevTeamCrew().crew()
+
+        # En un test real ejecutarías crew.kickoff()
+        # Aquí verificamos la configuración
+        assert len(crew.agents) == 4
+        assert len(crew.tasks) == 4
+
+    def test_crew_has_sequential_process(self):
+        from crewai import Process
+        from src.dev_team.crew import DevTeamCrew
+
+        crew = DevTeamCrew().crew()
+        assert crew.process == Process.sequential
+
+
+class TestPipelineMetrics:
+
+    def test_task_completion_rate_calculation(self):
+        from src.dev_team.metrics import PipelineMetrics
+
+        metrics = PipelineMetrics()
+        metrics.record("Project A", 120.0, 1, approved=True, escalated=False)
+        metrics.record("Project B", 240.0, 2, approved=True, escalated=False)
+        metrics.record("Project C", 90.0, 3, approved=False, escalated=True)
+
+        assert metrics.task_completion_rate == pytest.approx(66.7, rel=0.01)
+        assert metrics.avg_iterations == pytest.approx(2.0)
 ```
 
-### Ejecutar todos los tests
+### Ejecutar tests
 
 ```bash
-# Ejecutar suite completa
-pytest tests/ -v --tb=short
+# Todos los tests
+pytest tests/ -v
 
-# Solo tests unitarios (rápido, sin LLM)
+# Solo unitarios (sin API key)
 pytest tests/unit/ -v
 
-# Tests con cobertura
-pytest tests/ --cov=agents --cov=orchestration --cov-report=html
+# Con cobertura
+pytest tests/ --cov=src --cov-report=html --cov-report=term-missing
 
-# Tests de evaluación (requieren API key real)
-pytest tests/evaluation/ -v -m "not expensive"
+# Ver reporte HTML
+open htmlcov/index.html
+```
+
+### Evaluación con `crewai test`
+
+```bash
+# CrewAI tiene un comando nativo para evaluar la crew
+crewai test --n_iterations 3 --model gpt-4o-mini
+
+# Esto ejecuta la crew N veces y genera métricas de calidad
 ```
 
 ---
 
-## 12. KPIs y Medición de ROI
+## 12. KPIs y Métricas
 
-### Dashboard de métricas
+### Uso completo con métricas
 
 ```python
-# main.py - Ejemplo de uso completo con métricas
-from observability.metrics import AgentMetrics
-from observability.tracer import AgentTracer
+# src/dev_team/main.py — versión con métricas completas
 import time
+from dotenv import load_dotenv
+from .crew import DevTeamCrew
+from .metrics import PipelineMetrics
+
+load_dotenv()
+metrics = PipelineMetrics()
 
 
-def run_team_with_metrics():
-    metrics = AgentMetrics()
+def run_with_metrics(project_name: str, business_goal: str):
+    inputs = {"project_name": project_name, "business_goal": business_goal}
+    start = time.time()
 
-    # Simular ejecución de tareas (reemplazar con agentes reales)
-    tasks = [
-        {"task": "Implement login API", "expected_time": 30},
-        {"task": "Write unit tests for auth module", "expected_time": 20},
-        {"task": "Review PR #142", "expected_time": 10},
-    ]
-
-    for task_def in tasks:
-        start = time.time()
-
-        # Aquí iría: result = orchestrator.run(task_def["task"])
-        # Simulamos para el ejemplo:
-        success = True
-        escalated = False
-        first_attempt = True
-
+    try:
+        result = DevTeamCrew().crew().kickoff(inputs=inputs)
         duration = time.time() - start
-        metrics.record_task(
-            completed=success,
-            escalated=escalated,
-            first_attempt=first_attempt,
+        output = str(result)
+
+        approved = "APROBADO" in output.upper()
+        escalated = "ESCALADO" in output.upper()
+
+        metrics.record(
+            project=project_name,
             duration_s=duration,
-            accuracy=0.92,
+            iterations=1,
+            approved=approved,
+            escalated=escalated,
         )
+        return result
 
-    # Imprimir reporte
-    report = metrics.report()
-    print("\n📊 REPORTE DE KPIs DEL EQUIPO AGÉNTICO")
-    print("=" * 45)
-    for key, value in report.items():
-        status = ""
-        if "completion_rate" in key and value > 85:
-            status = "✅"
-        elif "first_contact" in key and value > 70:
-            status = "✅"
-        else:
-            status = "📈"
-        print(f"{status} {key}: {value}")
+    except Exception as e:
+        duration = time.time() - start
+        metrics.record(project_name, duration, 1, False, True)
+        raise
 
-    # Calcular ROI simplificado
-    hourly_rate = 50  # USD/hora desarrollador
-    hours_saved_per_task = 2
-    tasks_per_month = 100
-    agent_cost_monthly = 500  # USD (API + infra)
 
-    monthly_savings = tasks_per_month * hours_saved_per_task * hourly_rate
-    roi = ((monthly_savings - agent_cost_monthly) / agent_cost_monthly) * 100
+def run():
+    run_with_metrics(
+        project_name="Auth API",
+        business_goal="API REST con JWT, registro y login. 1000 req/seg."
+    )
+    metrics.report()
 
-    print(f"\n💰 ROI ESTIMADO MENSUAL")
-    print(f"  Ahorro bruto:   ${monthly_savings:,}")
-    print(f"  Costo agente:   ${agent_cost_monthly:,}")
-    print(f"  ROI:            {roi:.1f}%")
+    # Calcular ROI
+    hourly_rate = 50        # USD/hora desarrollador
+    hours_saved = 4         # horas ahorradas por tarea
+    tasks_monthly = 80      # tareas por mes
+    agent_cost = 300        # USD/mes (APIs + infra)
+
+    savings = tasks_monthly * hours_saved * hourly_rate
+    roi = ((savings - agent_cost) / agent_cost) * 100
+
+    print(f"\n💰 ROI ESTIMADO")
+    print(f"  Ahorro bruto mensual: ${savings:,}")
+    print(f"  Costo agente:         ${agent_cost:,}")
+    print(f"  ROI:                  {roi:.0f}%")
 
 
 if __name__ == "__main__":
-    run_team_with_metrics()
+    run()
 ```
 
 ---
 
-## Resumen de la Arquitectura
+## Referencia Rápida de Comandos
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    ORCHESTRATION LAYER                   │
-│        Sequential | Concurrent | LangGraph               │
-└──────────────┬──────────────────────────────┬───────────┘
-               │                              │
-   ┌───────────▼──────────┐    ┌─────────────▼────────────┐
-   │   ARCHITECT AGENT    │    │    DEVELOPER AGENT        │
-   │  (Plan & Design)     │───▶│  (Code & Execute)         │
-   └──────────────────────┘    └─────────────┬────────────┘
-                                             │
-                               ┌─────────────▼────────────┐
-                               │    REVIEWER AGENT         │
-                               │  (Evaluate & Retry)       │
-                               └─────────────┬────────────┘
-                                             │
-         ┌───────────────────────────────────▼──────────┐
-         │              SHARED INFRASTRUCTURE            │
-         │  Memory (ST + LT/Chroma) | Tools | Tracer     │
-         │  Prompt Registry | Metrics | LLM Judge        │
-         └───────────────────────────────────────────────┘
+```bash
+# Crear proyecto nuevo
+crewai create crew <nombre>
+
+# Ejecutar la crew
+crewai run
+
+# Evaluar calidad (N iteraciones)
+crewai test --n_iterations 3
+
+# Replay de la última ejecución (debug)
+crewai replay -t <task_id>
+
+# Entrenar la crew con feedback humano
+crewai train -n 5 -f feedback.pkl
+
+# Ver logs detallados
+crewai run --verbose
 ```
 
-> **Siguiente paso recomendado:** Comenzar con el `ArchitectAgent` y el `ReviewerAgent` en un pipeline secuencial simple, añadir observabilidad desde el primer día, y escalar progresivamente hacia la orquestación con LangGraph.
+---
+
+## Recursos
+
+- **Documentación oficial**: [docs.crewai.com](https://docs.crewai.com)
+- **Cursos gratuitos**: [learn.crewai.com](https://learn.crewai.com)
+- **Ejemplos**: [github.com/crewAIInc/crewAI-examples](https://github.com/crewAIInc/crewAI-examples)
+- **Comunidad**: [community.crewai.com](https://community.crewai.com)
+- **Quickstarts**: [github.com/crewAIInc/crewAI-quickstarts](https://github.com/crewAIInc/crewAI-quickstarts)
